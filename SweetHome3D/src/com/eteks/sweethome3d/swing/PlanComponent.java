@@ -2007,7 +2007,7 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
    * Prints this component plan at the scale given in the home print attributes or at a scale 
    * that makes it fill <code>pageFormat</code> imageable size if this attribute is <code>null</code>.
    */
-  public int print(Graphics g, PageFormat pageFormat, int pageIndex) {
+  private int printSelectedLevel(Graphics g, PageFormat pageFormat, int pageIndex) {
     List<Selectable> printedItems = getPaintedItems(); 
     Rectangle2D printedItemBounds = getItemsBounds(g, printedItems);
     if (printedItemBounds != null) {
@@ -2074,7 +2074,61 @@ public class PlanComponent extends JComponent implements PlanView, Scrollable, P
       return NO_SUCH_PAGE;
     }
   }
-  
+
+  private int getSelectedLevelPageCount(Graphics g, PageFormat pageFormat) {
+    Rectangle2D printedItemBounds = getItemsBounds(g, getPaintedItems());
+    if (printedItemBounds == null) {
+      return 0;
+    }
+    if (this.home.getPrint() == null || this.home.getPrint().getPlanScale() == null) {
+      return 1;
+    }
+    float printScale = this.home.getPrint().getPlanScale().floatValue() * LengthUnit.centimeterToInch(72);
+    double imageableWidth = pageFormat.getImageableWidth();
+    double imageableHeight = pageFormat.getImageableHeight();
+    int pagesPerRow = (int)(printedItemBounds.getWidth() * printScale / imageableWidth);
+    if (printedItemBounds.getWidth() * printScale != imageableWidth) {
+      pagesPerRow++;
+    }
+    int pagesPerColumn = (int)(printedItemBounds.getHeight() * printScale / imageableHeight);
+    if (printedItemBounds.getHeight() * printScale != imageableHeight) {
+      pagesPerColumn++;
+    }
+    return pagesPerRow * pagesPerColumn;
+  }
+
+  public int print(Graphics g, PageFormat pageFormat, int pageIndex) {
+    List<Level> printableLevels = new ArrayList<Level>();
+    for (Level level : this.home.getLevels()) {
+      if (level.isViewable()) {
+        printableLevels.add(level);
+      }
+    }
+    if (printableLevels.isEmpty()) {
+      // Home without levels: keep the original behavior
+      return printSelectedLevel(g, pageFormat, pageIndex);
+    }
+
+    Level originalLevel = this.home.getSelectedLevel();
+    try {
+      int firstPageOfLevel = 0;
+      for (Level level : printableLevels) {
+        this.home.setSelectedLevel(level);
+        int pageCount = getSelectedLevelPageCount(g, pageFormat);
+        if (pageIndex < firstPageOfLevel + pageCount) {
+          return printSelectedLevel(g, pageFormat, pageIndex - firstPageOfLevel);
+        }
+        firstPageOfLevel += pageCount;
+      }
+      return NO_SUCH_PAGE;
+    } finally {
+      // Always put back the level the user was on, even if printing failed
+      if (this.home.getSelectedLevel() != originalLevel) {
+        this.home.setSelectedLevel(originalLevel);
+      }
+    }
+  }
+
   /**
    * Returns an image of the selected items displayed by this component 
    * (camera excepted) with no outline at scale 1/1 (1 pixel = 1cm).
